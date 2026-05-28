@@ -1,18 +1,42 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from config import get_connection
+import os
 
 app = Flask(__name__)
 CORS(app)
+
+# ══════════════════════════════════════
+# RUTA RAIZ
+# ══════════════════════════════════════
+
 @app.route('/')
 def index():
-    return {'mensaje': 'API OXXO funcionando'}
+    return jsonify({'mensaje': 'API OXXO funcionando'})
+
+# ══════════════════════════════════════
+# LOGIN
+# ══════════════════════════════════════
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, nombre, rol FROM usuarios_oxxo WHERE usuario = %s AND password = %s",
+        (data['usuario'], data['password'])
+    )
+    user = cursor.fetchone()
+    conn.close()
+    if user:
+        return jsonify({'id': user[0], 'nombre': user[1], 'rol': user[2]})
+    return jsonify({'mensaje': 'Credenciales incorrectas'}), 401
 
 # ══════════════════════════════════════
 # PRODUCTOS
 # ══════════════════════════════════════
 
-# Obtener todos los productos
 @app.route('/productos', methods=['GET'])
 def get_productos():
     conn = get_connection()
@@ -27,7 +51,6 @@ def get_productos():
     ]
     return jsonify(productos)
 
-# Obtener un producto
 @app.route('/productos/<int:id>', methods=['GET'])
 def get_producto(id):
     conn = get_connection()
@@ -40,7 +63,6 @@ def get_producto(id):
                         'precio': float(r[3]), 'stock': r[4], 'codigo_barras': r[5]})
     return jsonify({'mensaje': 'Producto no encontrado'}), 404
 
-# Crear producto
 @app.route('/productos', methods=['POST'])
 def create_producto():
     data = request.get_json()
@@ -55,7 +77,6 @@ def create_producto():
     conn.close()
     return jsonify({'mensaje': 'Producto creado', 'id': new_id}), 201
 
-# Actualizar producto
 @app.route('/productos/<int:id>', methods=['PUT'])
 def update_producto(id):
     data = request.get_json()
@@ -69,7 +90,6 @@ def update_producto(id):
     conn.close()
     return jsonify({'mensaje': 'Producto actualizado'})
 
-# Eliminar producto
 @app.route('/productos/<int:id>', methods=['DELETE'])
 def delete_producto(id):
     conn = get_connection()
@@ -83,7 +103,6 @@ def delete_producto(id):
 # VENTAS
 # ══════════════════════════════════════
 
-# Obtener todas las ventas
 @app.route('/ventas', methods=['GET'])
 def get_ventas():
     conn = get_connection()
@@ -106,24 +125,20 @@ def get_ventas():
     ]
     return jsonify(ventas)
 
-# Crear venta
 @app.route('/ventas', methods=['POST'])
 def create_venta():
     data = request.get_json()
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Calcular total
     total = sum(item['precio'] * item['cantidad'] for item in data['productos'])
 
-    # Insertar venta
     cursor.execute(
         "INSERT INTO ventas_oxxo (total, metodo_pago) VALUES (%s, %s) RETURNING id",
         (total, data['metodo_pago'])
     )
     venta_id = cursor.fetchone()[0]
 
-    # Insertar detalle y actualizar stock
     for item in data['productos']:
         cursor.execute(
             "INSERT INTO detalle_venta_oxxo (venta_id, producto_id, cantidad, precio_unit, subtotal) VALUES (%s, %s, %s, %s, %s)",
@@ -147,21 +162,17 @@ def get_dashboard():
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Ventas del dia
     cursor.execute("SELECT COUNT(*), COALESCE(SUM(total), 0) FROM ventas_oxxo WHERE DATE(fecha) = CURRENT_DATE")
     r = cursor.fetchone()
     ventas_hoy = int(r[0])
     ingresos_hoy = float(r[1])
 
-    # Total productos
     cursor.execute("SELECT COUNT(*) FROM productos_oxxo")
     total_productos = cursor.fetchone()[0]
 
-    # Productos con stock bajo
     cursor.execute("SELECT COUNT(*) FROM productos_oxxo WHERE stock <= 5")
     stock_bajo = cursor.fetchone()[0]
 
-    # Top 5 productos mas vendidos
     cursor.execute("""
         SELECT p.nombre, SUM(dv.cantidad) as total_vendido
         FROM detalle_venta_oxxo dv
@@ -204,7 +215,30 @@ def get_inventario():
         for r in rows
     ])
 
+# ══════════════════════════════════════
+# REPORTES
+# ══════════════════════════════════════
+
+@app.route('/reportes', methods=['GET'])
+def get_reportes():
+    fecha_inicio = request.args.get('inicio')
+    fecha_fin = request.args.get('fin')
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DATE(fecha) as dia, COUNT(*) as num, SUM(total) as total
+        FROM ventas_oxxo
+        WHERE DATE(fecha) BETWEEN %s::date AND %s::date
+        GROUP BY DATE(fecha)
+        ORDER BY dia DESC
+    """, (fecha_inicio, fecha_fin))
+    rows = cursor.fetchall()
+    conn.close()
+    return jsonify([
+        {'fecha': str(r[0]), 'num_ventas': r[1], 'total': float(r[2])}
+        for r in rows
+    ])
+
 if __name__ == '__main__':
-    import os
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
