@@ -264,3 +264,59 @@ def get_detalle_venta(id):
          'subtotal': float(r[2]), 'nombre': r[3], 'categoria': r[4]}
         for r in rows
     ])
+
+# ══════════════════════════════════════
+# USUARIOS
+# ══════════════════════════════════════
+
+@app.route('/usuarios', methods=['GET'])
+def get_usuarios():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nombre, usuario, rol FROM usuarios_oxxo ORDER BY id")
+    rows = cursor.fetchall()
+    conn.close()
+    return jsonify([
+        {'id': r[0], 'nombre': r[1], 'usuario': r[2], 'rol': r[3]}
+        for r in rows
+    ])
+
+@app.route('/usuarios', methods=['POST'])
+def create_usuario():
+    data = request.get_json()
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO usuarios_oxxo (nombre, usuario, password, rol) VALUES (%s, %s, %s, %s) RETURNING id",
+            (data['nombre'], data['usuario'], data['password'], data['rol'])
+        )
+        new_id = cursor.fetchone()[0]
+        conn.commit()
+        conn.close()
+        return jsonify({'mensaje': 'Usuario creado', 'id': new_id}), 201
+    except Exception as ex:
+        conn.close()
+        return jsonify({'mensaje': 'Error: ' + str(ex)}), 400
+
+@app.route('/usuarios/<int:id>', methods=['PUT'])
+def update_usuario(id):
+    data = request.get_json()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE usuarios_oxxo SET nombre=%s, usuario=%s, rol=%s WHERE id=%s",
+        (data['nombre'], data['usuario'], data['rol'], id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'mensaje': 'Usuario actualizado'})
+
+@app.route('/usuarios/<int:id>', methods=['DELETE'])
+def delete_usuario(id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM usuarios_oxxo WHERE id = %s", (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'mensaje': 'Usuario eliminado'})
