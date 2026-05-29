@@ -242,3 +242,25 @@ def get_reportes():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
+
+# ══════════════════════════════════════
+# HISTORIAL DETALLE DE VENTA
+# ══════════════════════════════════════
+
+@app.route('/ventas/<int:id>/detalle', methods=['GET'])
+def get_detalle_venta(id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT d.cantidad, d.precio_unit, d.subtotal, p.nombre, p.categoria
+        FROM detalle_venta_oxxo d
+        JOIN productos_oxxo p ON p.id = d.producto_id
+        WHERE d.venta_id = %s
+    """, (id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return jsonify([
+        {'cantidad': r[0], 'precio_unit': float(r[1]),
+         'subtotal': float(r[2]), 'nombre': r[3], 'categoria': r[4]}
+        for r in rows
+    ])
